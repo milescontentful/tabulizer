@@ -8,6 +8,7 @@ import {
   IconButton,
   Menu,
   ModalConfirm,
+  Select,
   Spinner,
   Text,
   Tooltip,
@@ -137,6 +138,25 @@ export function TranslationView({
 
   const getLocaleName = (locale: string): string => sdk.locales.names?.[locale] || locale;
 
+  // Target locale selection - by default show ONE target next to the source
+  // (side-by-side pair, no horizontal overflow). '__all__' shows every active
+  // locale from the sidebar at once for multi-locale comparison.
+  const availableTargets = useMemo(
+    () => sdk.locales.available.filter((l) => l !== defaultLocale),
+    [sdk.locales.available, defaultLocale]
+  );
+  const [targetLocale, setTargetLocale] = useState<string>(
+    () => locales.find((l) => l !== defaultLocale) ?? availableTargets[0] ?? ''
+  );
+  const showAll = targetLocale === '__all__';
+  const displayedLocales = useMemo(() => {
+    if (showAll) {
+      // All active sidebar locales, source first (already sorted by EntryEditor)
+      return locales.length > 1 ? locales : [defaultLocale, ...availableTargets];
+    }
+    return targetLocale ? [defaultLocale, targetLocale] : [defaultLocale];
+  }, [showAll, locales, defaultLocale, targetLocale, availableTargets]);
+
   // ALL localized fields from the Content Model in their natural order
   const localizedFields = useMemo(
     () => sdk.contentType.fields.filter((f) => f.localized),
@@ -151,7 +171,7 @@ export function TranslationView({
     [localizedFields]
   );
 
-  const progress = useTranslationProgress(sdk, locales, defaultLocale, translatableFields);
+  const progress = useTranslationProgress(sdk, displayedLocales, defaultLocale, translatableFields);
 
   // Copy translatable text (incl. Rich Text) from source to target, then hand off
   // to Contentful's native AI Actions for the actual translation.
@@ -336,25 +356,55 @@ export function TranslationView({
         </Text>
       </ModalConfirm>
 
-      {/* Locale Column Headers with Actions */}
-      <Flex
-        gap="spacingL"
+      {/* Sticky header: target picker + locale column headers */}
+      <Box
         style={{
-          borderBottom: `2px solid ${tokens.blue600}`,
-          paddingBottom: tokens.spacingM,
-          marginBottom: tokens.spacingM,
           position: 'sticky',
           top: 0,
           background: tokens.colorWhite,
           zIndex: 10,
         }}
       >
+        {/* Target locale picker - one pair at a time keeps the layout clean */}
+        <Flex alignItems="center" gap="spacingS" style={{ paddingBottom: tokens.spacingS }}>
+          <Text fontSize="fontSizeS" fontColor="gray600" fontWeight="fontWeightMedium">
+            Translate into
+          </Text>
+          <Select
+            id="target-locale"
+            name="target-locale"
+            size="small"
+            value={targetLocale}
+            onChange={(e) => setTargetLocale(e.target.value)}
+            style={{ maxWidth: '280px' }}
+          >
+            {availableTargets.map((locale) => (
+              <Select.Option key={locale} value={locale}>
+                {getLocaleName(locale)}
+              </Select.Option>
+            ))}
+            <Select.Option value="__all__">All active locales (side-by-side)</Select.Option>
+          </Select>
+          {showAll && (
+            <Text fontSize="fontSizeS" fontColor="gray500">
+              Showing the locales enabled in the sidebar — scroll horizontally if needed
+            </Text>
+          )}
+        </Flex>
+
+        <Flex
+          gap="spacingL"
+          style={{
+            borderBottom: `2px solid ${tokens.blue600}`,
+            paddingBottom: tokens.spacingM,
+          }}
+        >
         <Box style={{ width: '140px', flexShrink: 0 }}>
           <Text fontWeight="fontWeightDemiBold" fontColor="gray700" fontSize="fontSizeM">
             Field
           </Text>
         </Box>
-        {locales.map((locale) => (
+        {displayedLocales.map((locale) => (
           <Box key={locale} style={{ flex: '1 1 0', minWidth: '300px' }}>
             <Flex alignItems="center" justifyContent="space-between" marginBottom="spacingXs">
               <Flex alignItems="center" gap="spacingXs">
@@ -453,7 +503,8 @@ export function TranslationView({
             )}
           </Box>
         ))}
-      </Flex>
+        </Flex>
+      </Box>
 
       {/* Field Rows - uses FieldRenderer for full editing capabilities */}
       {localizedFields.map((fieldDef) => (
@@ -462,8 +513,8 @@ export function TranslationView({
           gap="spacingL"
           style={{
             borderBottom: `1px solid ${tokens.gray200}`,
+            paddingTop: tokens.spacingM,
             paddingBottom: tokens.spacingM,
-            marginBottom: tokens.spacingM,
             alignItems: 'flex-start',
           }}
         >
@@ -492,7 +543,7 @@ export function TranslationView({
           </Box>
 
           {/* Locale Columns - Full FieldRenderer per locale, plus per-field copy on targets */}
-          {locales.map((locale) => (
+          {displayedLocales.map((locale) => (
             <Flex key={locale} gap="spacingXs" style={{ flex: '1 1 0', minWidth: '300px', alignItems: 'flex-start' }}>
               <Box style={{ flex: 1, minWidth: 0 }}>
                 <FieldRenderer
@@ -520,32 +571,17 @@ export function TranslationView({
         </Flex>
       ))}
 
-      {/* Info about non-localized fields */}
+      {/* Info about non-localized fields - compact single line */}
       {nonLocalizedFields.length > 0 && (
-        <Box
-          marginTop="spacingXl"
-          padding="spacingM"
-          style={{
-            background: tokens.gray100,
-            borderRadius: tokens.borderRadiusMedium,
-            border: `1px solid ${tokens.gray200}`,
-          }}
-        >
-          <Text
-            as="div"
-            fontSize="fontSizeS"
-            fontColor="gray600"
-            fontWeight="fontWeightMedium"
-            marginBottom="spacingXs"
+        <Box marginTop="spacingL">
+          <Tooltip
+            content='These fields are not localized. To translate them, enable "Localization" in the Content Model settings.'
+            placement="top"
           >
-            Non-localized fields (not available for translation):
-          </Text>
-          <Text as="div" fontSize="fontSizeS" fontColor="gray500">
-            {nonLocalizedFields.map((f) => f.name).join(' • ')}
-          </Text>
-          <Text as="div" fontSize="fontSizeS" fontColor="gray400" marginTop="spacingXs">
-            To translate these fields, enable "Localization" in the Content Model settings.
-          </Text>
+            <Text as="div" fontSize="fontSizeS" fontColor="gray500">
+              Not localized: {nonLocalizedFields.map((f) => f.name).join(' • ')}
+            </Text>
+          </Tooltip>
         </Box>
       )}
     </Box>

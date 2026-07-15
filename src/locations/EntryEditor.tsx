@@ -131,7 +131,16 @@ function EntryEditor() {
         }}
       >
         <Flex alignItems="center">
-          {activeLayout === 'tabs' ? (
+          {displayMode === 'translation' ? (
+            // Tabs/columns don't apply in Translation mode - show a clear label instead
+            <Flex alignItems="center" gap="spacingXs" style={{ padding: `${tokens.spacingXs} 0` }}>
+              <LanguageIcon size="small" style={{ color: tokens.blue600 }} />
+              <Text fontWeight="fontWeightMedium">Translation</Text>
+              <Text fontSize="fontSizeS" fontColor="gray500">
+                All localized fields, Content Model order
+              </Text>
+            </Flex>
+          ) : activeLayout === 'tabs' ? (
             <>
               <TabBar
                 tabs={tabs}
@@ -190,8 +199,8 @@ function EntryEditor() {
             </Menu.List>
           </Menu>
 
-          {/* Layout Toggle - only show if both tabs and columns are configured */}
-          {hasTabs && hasColumns && (
+          {/* Layout Toggle - only when both layouts are configured and not in translation mode */}
+          {hasTabs && hasColumns && displayMode !== 'translation' && (
             <Menu>
               <Menu.Trigger>
                 <Button
