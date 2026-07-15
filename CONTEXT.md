@@ -173,7 +173,15 @@ Test in Contentful:
 
 ## Session History
 
-### July 14, 2026 (Latest, evening) — App Functions + One-Click AI Translation
+### July 14, 2026 (Latest, night) — Translation UX overhaul
+- Fixed the Rich Text white-screen crash: pseudo-SDK now sanitizes BOTH getValue and onValueChanged paths; RichTextEditor wrapped in an error boundary that falls back to a read-only preview
+- Translation mode: "Translate into" target-locale picker — source + one target by default, "All active locales" optional; tab bar and layout toggle hidden in translation mode
+- Row-header layout: field name/type/required as a slim line above each row (removed the cramped 140px left column)
+- `translateFields` function reworked to per-field calls: frontend fires all fields in parallel, results stream into the UI, button shows "Translating 3/6…"
+- Rich Text AI translation: function batch-translates text node values (delimiter-joined) and re-injects them, preserving document structure — verified via CMA (en→ja on the offer entry)
+- Removed the legacy "Prepare All for AI Translation" menu item (redundant with direct AI translate)
+
+### July 14, 2026 (evening) — App Functions + One-Click AI Translation
 - Added two App Functions (pattern ported from content-health-dashboard): `listAiActions` and `translateFields` in `functions/`, built with `contentful-app-scripts build-functions`
 - Functions run server-side with App Identity (`context.cma`) — this bypasses the iframe restriction on invoking AI Actions
 - `translateFields` RETURNS translations instead of writing via CMA (avoids version conflicts with the open editor); the frontend applies them via the App SDK field API so UI/progress/autosave stay in sync

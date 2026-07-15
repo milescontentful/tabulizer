@@ -41,12 +41,13 @@
     {
       "id": "ch8JlwGk5hZbFWNNvvTB8",
       "name": "Translate Fields",
-      "description": "Translates localizable text fields server-side via a Contentful AI Action.",
+      "description": "Translates one field (text or rich text) server-side via a Contentful AI Action.",
       "type": "function-invocation",
       "functionId": "translateFields",
       "category": "Custom",
       "parameters": [
         { "id": "entryId", "name": "Entry ID", "type": "Symbol", "required": true },
+        { "id": "fieldId", "name": "Field ID", "type": "Symbol", "required": true },
         { "id": "sourceLocale", "name": "Source Locale", "type": "Symbol", "required": true },
         { "id": "targetLocale", "name": "Target Locale", "type": "Symbol", "required": true },
         { "id": "aiActionId", "name": "AI Action ID", "type": "Symbol", "required": true }

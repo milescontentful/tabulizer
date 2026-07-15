@@ -137,8 +137,7 @@ When both tabs and columns are configured:
 3. View source and target locales side-by-side, with a live progress bar per target locale
 4. Copy a single field from the source locale with the copy button next to each target field
 5. Use **Actions** menu for bulk operations:
-   - **Translate with AI → [your AI Action]**: One click translates every text field into the target locale, server-side, and fills the column in live
-   - **Prepare All for AI Translation**: Copies source text (including Rich Text) so you can run Contentful's native ✨ AI menu manually
+   - **Translate with AI → [your AI Action]**: One click translates every text field (including Rich Text) into the target locale, streaming results into the column as they finish
    - **Copy All from Source**: Duplicate source to target (asks for confirmation)
    - **Clear All**: Reset target locale content (asks for confirmation)
 
@@ -149,9 +148,9 @@ Contentful blocks AI Action invocation from app iframes, so Tabulizer ships two 
 | Function | App Action | What it does |
 |---|---|---|
 | `listAiActions` | List AI Actions | Returns the space's published AI Actions so the editor can offer them in the menu |
-| `translateFields` | Translate Fields | Invokes your chosen AI Action per text field (source → target locale) and returns the translations |
+| `translateFields` | Translate Fields | Translates ONE field via your chosen AI Action — plain text directly, Rich Text by batch-translating its text nodes while preserving formatting, links, and embeds |
 
-The entry editor calls these via `sdk.cma.appActionCall.createWithResponse()` and applies the returned translations through the App SDK field API — so the UI, progress bar, and autosave all update live, with no CMA version conflicts against the open editor.
+The entry editor fires one Translate Fields call per field in parallel via `sdk.cma.appActionCall.createWithResponse()` and applies each result through the App SDK field API as it lands — translations stream into the columns live, the Actions button shows `Translating 3/6…`, and there are no CMA version conflicts against the open editor.
 
 **Requirements:** the space needs at least one published AI Action (e.g. a "Translate" action with a Text/StandardInput variable and source/target Locale variables). The menu section hides itself if none exist.
 

@@ -16,7 +16,7 @@ import {
 import tokens from '@contentful/f36-tokens';
 import { ChevronDownIcon, CopyIcon, DeleteIcon, StarIcon } from '@contentful/f36-icons';
 import { FieldRenderer } from './FieldRenderer';
-import { listAiActions, translateFieldsViaAiAction, AiActionInfo } from '../utils/appActions';
+import { listAiActions, translateFieldViaAiAction, AiActionInfo } from '../utils/appActions';
 
 /** Field types that hold translatable text - these drive the progress bar */
 const TRANSLATABLE_TYPES = ['Symbol', 'Text', 'RichText'];
@@ -113,6 +113,8 @@ export function TranslationView({
 }) {
   // Which locale a bulk action is currently running against (disables its menu)
   const [busyLocale, setBusyLocale] = useState<string | null>(null);
+  // Streaming AI translation progress for the busy locale
+  const [aiProgress, setAiProgress] = useState<{ done: number; total: number } | null>(null);
   // Pending destructive action awaiting confirmation
   const [confirmAction, setConfirmAction] = useState<
     { type: 'copy' | 'clear'; locale: string } | null
@@ -173,33 +175,6 @@ export function TranslationView({
 
   const progress = useTranslationProgress(sdk, displayedLocales, defaultLocale, translatableFields);
 
-  // Copy translatable text (incl. Rich Text) from source to target, then hand off
-  // to Contentful's native AI Actions for the actual translation.
-  const handleBulkPrepareForAI = async (targetLocale: string) => {
-    setBusyLocale(targetLocale);
-    try {
-      let copiedCount = 0;
-      for (const fieldDef of translatableFields) {
-        try {
-          const sourceValue = sdk.entry.fields[fieldDef.id]
-            ?.getForLocale(defaultLocale)
-            ?.getValue();
-          if (hasContent(sourceValue, fieldDef.type)) {
-            await sdk.entry.fields[fieldDef.id]?.getForLocale(targetLocale)?.setValue(sourceValue);
-            copiedCount++;
-          }
-        } catch {
-          // Skip fields that fail
-        }
-      }
-      sdk.notifier.success(
-        `${copiedCount} field${copiedCount === 1 ? '' : 's'} prepared. Use the AI button (top-right) → Translate to translate them.`
-      );
-    } finally {
-      setBusyLocale(null);
-    }
-  };
-
   // Copy ALL localized field values (every type) from source to target
   const handleCopyAll = async (targetLocale: string) => {
     setBusyLocale(targetLocale);
@@ -257,27 +232,52 @@ export function TranslationView({
     }
   };
 
-  // Translate all text fields into the target locale via a Contentful AI Action,
-  // proxied through an App Function (the iframe can't invoke AI Actions directly).
-  // Translations are applied through the SDK field API so the UI updates live.
+  // Translate every text field (incl. Rich Text) into the target locale via a
+  // Contentful AI Action, proxied through an App Function (the iframe can't
+  // invoke AI Actions directly). Fields are translated in parallel and each
+  // result is applied through the SDK field API as it lands, so the columns
+  // fill in live and the button shows streaming progress.
   const handleAiTranslate = async (targetLocale: string, aiAction: AiActionInfo) => {
-    setBusyLocale(targetLocale);
-    try {
-      const { translations, skippedCount } = await translateFieldsViaAiAction(
-        sdk,
-        aiAction.id,
-        defaultLocale,
-        targetLocale
-      );
-      let appliedCount = 0;
-      for (const [fieldId, text] of Object.entries(translations)) {
-        try {
-          await sdk.entry.fields[fieldId]?.getForLocale(targetLocale)?.setValue(text);
-          appliedCount++;
-        } catch {
-          // Skip fields that fail
-        }
+    const fieldsToTranslate = translatableFields.filter((f) => {
+      try {
+        return hasContent(sdk.entry.fields[f.id]?.getForLocale(defaultLocale)?.getValue(), f.type);
+      } catch {
+        return false;
       }
+    });
+    if (fieldsToTranslate.length === 0) {
+      sdk.notifier.warning('No source content to translate.');
+      return;
+    }
+
+    setBusyLocale(targetLocale);
+    setAiProgress({ done: 0, total: fieldsToTranslate.length });
+    let appliedCount = 0;
+    let skippedCount = 0;
+    try {
+      await Promise.all(
+        fieldsToTranslate.map(async (field) => {
+          try {
+            const result = await translateFieldViaAiAction(
+              sdk,
+              aiAction.id,
+              field.id,
+              defaultLocale,
+              targetLocale
+            );
+            if (!result.skipped && result.value != null) {
+              await sdk.entry.fields[field.id]?.getForLocale(targetLocale)?.setValue(result.value);
+              appliedCount++;
+            } else {
+              skippedCount++;
+            }
+          } catch {
+            skippedCount++;
+          } finally {
+            setAiProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
+          }
+        })
+      );
       if (appliedCount > 0) {
         sdk.notifier.success(
           `Translated ${appliedCount} field${appliedCount === 1 ? '' : 's'} to ${getLocaleName(targetLocale)} with "${aiAction.name}"${skippedCount ? ` (${skippedCount} skipped)` : ''}`
@@ -285,10 +285,9 @@ export function TranslationView({
       } else {
         sdk.notifier.warning('No fields were translated. Check the AI Action configuration.');
       }
-    } catch (err) {
-      sdk.notifier.error(`AI translation failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusyLocale(null);
+      setAiProgress(null);
     }
   };
 
@@ -399,11 +398,6 @@ export function TranslationView({
             paddingBottom: tokens.spacingM,
           }}
         >
-        <Box style={{ width: '140px', flexShrink: 0 }}>
-          <Text fontWeight="fontWeightDemiBold" fontColor="gray700" fontSize="fontSizeM">
-            Field
-          </Text>
-        </Box>
         {displayedLocales.map((locale) => (
           <Box key={locale} style={{ flex: '1 1 0', minWidth: '300px' }}>
             <Flex alignItems="center" justifyContent="space-between" marginBottom="spacingXs">
@@ -426,7 +420,8 @@ export function TranslationView({
                     >
                       {busyLocale === locale ? (
                         <Flex alignItems="center" gap="spacingXs">
-                          <Spinner size="small" /> Working…
+                          <Spinner size="small" />
+                          {aiProgress ? `Translating ${aiProgress.done}/${aiProgress.total}…` : 'Working…'}
                         </Flex>
                       ) : (
                         'Actions'
@@ -448,11 +443,6 @@ export function TranslationView({
                         <Menu.Divider />
                       </>
                     )}
-                    <Menu.Item onClick={() => handleBulkPrepareForAI(locale)}>
-                      <Flex alignItems="center" gap="spacingXs">
-                        <StarIcon size="tiny" /> Prepare All for AI Translation
-                      </Flex>
-                    </Menu.Item>
                     <Menu.Item onClick={() => setConfirmAction({ type: 'copy', locale })}>
                       <Flex alignItems="center" gap="spacingXs">
                         <CopyIcon size="tiny" /> Copy All from Source
@@ -506,69 +496,67 @@ export function TranslationView({
         </Flex>
       </Box>
 
-      {/* Field Rows - uses FieldRenderer for full editing capabilities */}
+      {/* Field Rows - slim full-width header per field, then the locale editors */}
       {localizedFields.map((fieldDef) => (
-        <Flex
+        <Box
           key={fieldDef.id}
-          gap="spacingL"
           style={{
             borderBottom: `1px solid ${tokens.gray200}`,
             paddingTop: tokens.spacingM,
             paddingBottom: tokens.spacingM,
-            alignItems: 'flex-start',
           }}
         >
-          {/* Field Name Column */}
-          <Box style={{ width: '140px', flexShrink: 0, paddingTop: '6px' }}>
+          {/* Field header row */}
+          <Flex alignItems="baseline" gap="spacingXs" style={{ marginBottom: tokens.spacingXs }}>
             <Text fontWeight="fontWeightMedium" fontSize="fontSizeS" fontColor="gray700">
               {fieldDef.name}
             </Text>
+            <Text fontSize="fontSizeS" fontColor="gray400">
+              {fieldDef.type}
+            </Text>
             {fieldDef.required && (
-              <Text as="div" fontSize="fontSizeS" fontColor="red600" style={{ marginTop: '2px' }}>
+              <Text fontSize="fontSizeS" fontColor="red600">
                 Required
               </Text>
             )}
-            <Text as="div" fontSize="fontSizeS" fontColor="gray400" style={{ marginTop: '4px' }}>
-              {fieldDef.type}
-            </Text>
             {(fieldDef.type === 'Link' ||
               (fieldDef.type === 'Array' &&
                 (fieldDef as { items?: { type?: string } }).items?.type === 'Link')) && (
-              <Box style={{ marginTop: '6px' }}>
-                <Badge variant="warning" size="small">
-                  Reference
-                </Badge>
-              </Box>
+              <Badge variant="warning" size="small">
+                Reference
+              </Badge>
             )}
-          </Box>
+          </Flex>
 
           {/* Locale Columns - Full FieldRenderer per locale, plus per-field copy on targets */}
-          {displayedLocales.map((locale) => (
-            <Flex key={locale} gap="spacingXs" style={{ flex: '1 1 0', minWidth: '300px', alignItems: 'flex-start' }}>
-              <Box style={{ flex: 1, minWidth: 0 }}>
-                <FieldRenderer
-                  fieldId={fieldDef.id}
-                  sdk={sdk}
-                  locales={[locale]}
-                  defaultLocale={defaultLocale}
-                  displayMode="compact"
-                  hideLabel
-                />
-              </Box>
-              {locale !== defaultLocale && (
-                <Tooltip content={`Copy from ${getLocaleName(defaultLocale)}`} placement="top">
-                  <IconButton
-                    variant="transparent"
-                    size="small"
-                    aria-label={`Copy ${fieldDef.name} from source locale`}
-                    icon={<CopyIcon />}
-                    onClick={() => handleCopyField(fieldDef.id, locale)}
+          <Flex gap="spacingL" style={{ alignItems: 'flex-start' }}>
+            {displayedLocales.map((locale) => (
+              <Flex key={locale} gap="spacingXs" style={{ flex: '1 1 0', minWidth: '300px', alignItems: 'flex-start' }}>
+                <Box style={{ flex: 1, minWidth: 0 }}>
+                  <FieldRenderer
+                    fieldId={fieldDef.id}
+                    sdk={sdk}
+                    locales={[locale]}
+                    defaultLocale={defaultLocale}
+                    displayMode="compact"
+                    hideLabel
                   />
-                </Tooltip>
-              )}
-            </Flex>
-          ))}
-        </Flex>
+                </Box>
+                {locale !== defaultLocale && (
+                  <Tooltip content={`Copy from ${getLocaleName(defaultLocale)}`} placement="top">
+                    <IconButton
+                      variant="transparent"
+                      size="small"
+                      aria-label={`Copy ${fieldDef.name} from source locale`}
+                      icon={<CopyIcon />}
+                      onClick={() => handleCopyField(fieldDef.id, locale)}
+                    />
+                  </Tooltip>
+                )}
+              </Flex>
+            ))}
+          </Flex>
+        </Box>
       ))}
 
       {/* Info about non-localized fields - compact single line */}

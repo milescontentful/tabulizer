@@ -47,26 +47,29 @@ export async function listAiActions(sdk: EditorAppSDK): Promise<AiActionInfo[]> 
 }
 
 /**
- * Translate the entry's localizable text fields from source to target locale
- * using the given AI Action. Returns the translations (fieldId → text) so the
- * caller can apply them through the App SDK field API.
+ * Translate ONE field from source to target locale using the given AI Action.
+ * Called once per field (in parallel) so translations stream into the UI.
+ * Returns the translated value (string for Symbol/Text, document for RichText)
+ * or skipped=true when there was nothing to translate.
  */
-export async function translateFieldsViaAiAction(
+export async function translateFieldViaAiAction(
   sdk: EditorAppSDK,
   aiActionId: string,
+  fieldId: string,
   sourceLocale: string,
   targetLocale: string
-): Promise<{ translations: Record<string, string>; skippedCount: number }> {
+): Promise<{ value?: string | object; skipped?: boolean }> {
   const result = await invokeAppAction<{
-    translations: Record<string, string>;
-    skippedCount: number;
+    value?: string | object;
+    skipped?: boolean;
     error?: string;
   }>(sdk, APP_ACTION_IDS.translateFields, {
     entryId: sdk.ids.entry,
+    fieldId,
     sourceLocale,
     targetLocale,
     aiActionId,
   });
-  if (result.error) throw new Error(result.error);
+  if (result.error && !result.skipped) throw new Error(result.error);
   return result;
 }

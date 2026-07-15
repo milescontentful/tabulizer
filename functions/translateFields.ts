@@ -1,25 +1,28 @@
 /**
  * App Function: translateFields
  *
- * Translates an entry's localizable text fields from a source locale to a
- * target locale by proxying a Contentful AI Action server-side.
+ * Translates ONE field of an entry from a source locale to a target locale by
+ * proxying a Contentful AI Action server-side. The frontend calls this once
+ * per field (in parallel) so translations stream into the UI as they finish.
  *
- * Unlike a page-location app, Tabulizer runs INSIDE the entry editor, so this
- * function does NOT write the results back via the CMA (that would conflict
- * with the open editor session). It returns the translations and the frontend
- * applies them through the App SDK field API, which keeps the UI, progress
- * bar, and autosave in sync.
+ * Symbol/Text fields translate directly. RichText fields are handled by
+ * collecting the document's text node values, translating them in a single
+ * delimited batch, and re-injecting them into the document structure - so
+ * formatting, links, and embeds are preserved.
  *
  * Accepts:
  *   {
  *     entryId:      string,
+ *     fieldId:      string,
  *     sourceLocale: string,   // e.g. "en-US"
  *     targetLocale: string,   // e.g. "de-DE"
  *     aiActionId:   string,   // Contentful AI Action ID to proxy
  *   }
  *
  * Returns:
- *   { translations: { [fieldId]: string }, skippedCount: number, error?: string }
+ *   { value?: string | object, skipped?: boolean, error?: string }
+ *   - value: the translated string (Symbol/Text) or document (RichText);
+ *     the frontend applies it via the App SDK field API.
  */
 import {
   FunctionEventHandler,
@@ -28,31 +31,56 @@ import {
 } from '@contentful/node-apps-toolkit';
 import { proxyAiAction } from './_aiActionProxy';
 
-interface TranslateFieldsParams {
+interface TranslateFieldParams {
   entryId: string;
+  fieldId: string;
   sourceLocale?: string;
   targetLocale: string;
   aiActionId: string;
 }
 
-interface TranslateFieldsResponse {
-  translations: Record<string, string>;
-  skippedCount: number;
+interface TranslateFieldResponse {
+  value?: string | object;
+  skipped?: boolean;
   error?: string;
 }
 
-const TRANSLATABLE_FIELD_TYPES = new Set(['Symbol', 'Text']);
+// ponytail: delimiter-based batch translation of rich text segments. If the
+// model mangles the delimiter the segment count mismatches and we skip the
+// field (frontend leaves it untouched). Upgrade path: one invocation per text
+// node, or an AI Action that accepts structured JSON.
+const DELIMITER = '\n|||---|||\n';
+
+/** Depth-first collect of text node values from a Rich Text document. */
+function collectTextValues(node: any, out: string[]): void {
+  if (node?.nodeType === 'text') {
+    out.push(typeof node.value === 'string' ? node.value : '');
+    return;
+  }
+  for (const child of node?.content ?? []) collectTextValues(child, out);
+}
+
+/** Rebuild the document with translated text values in original positions. */
+function injectTextValues(node: any, values: string[], cursor: { i: number }): any {
+  if (node?.nodeType === 'text') {
+    return { ...node, value: values[cursor.i++] };
+  }
+  if (Array.isArray(node?.content)) {
+    return { ...node, content: node.content.map((c: any) => injectTextValues(c, values, cursor)) };
+  }
+  return node;
+}
 
 export const handler: FunctionEventHandler<FunctionTypeEnum.AppActionCall> = async (
   event,
   context: FunctionEventContext,
-): Promise<TranslateFieldsResponse> => {
+): Promise<TranslateFieldResponse> => {
   try {
-    const params = event.body as unknown as TranslateFieldsParams;
-    const { entryId, sourceLocale = 'en-US', targetLocale, aiActionId } = params;
+    const params = event.body as unknown as TranslateFieldParams;
+    const { entryId, fieldId, sourceLocale = 'en-US', targetLocale, aiActionId } = params;
 
-    if (!targetLocale || !aiActionId) {
-      return { translations: {}, skippedCount: 0, error: 'targetLocale and aiActionId are required.' };
+    if (!entryId || !fieldId || !targetLocale || !aiActionId) {
+      return { error: 'entryId, fieldId, targetLocale, and aiActionId are required.' };
     }
 
     const cma = context.cma;
@@ -60,52 +88,52 @@ export const handler: FunctionEventHandler<FunctionTypeEnum.AppActionCall> = asy
     const environmentId: string = context.environmentId;
 
     const entry = await cma.entry.get({ entryId, spaceId, environmentId });
-    const contentTypeId: string = entry.sys.contentType.sys.id;
-    const ct = await cma.contentType.get({ contentTypeId, spaceId, environmentId });
+    const sourceValue = (entry.fields[fieldId] as any)?.[sourceLocale];
 
-    // Only translate fields that have localization enabled AND are plain text
-    const localizableFields: Array<{ id: string; type: string }> = (ct.fields as any[]).filter(
-      (f) => f.localized && TRANSLATABLE_FIELD_TYPES.has(f.type),
-    );
-
-    if (localizableFields.length === 0) {
-      return {
-        translations: {},
-        skippedCount: 0,
-        error: `Content type "${contentTypeId}" has no localizable text fields.`,
-      };
+    // Plain text fields: translate the string directly
+    if (typeof sourceValue === 'string') {
+      if (!sourceValue.trim()) return { skipped: true };
+      const translated = await proxyAiAction(context, aiActionId, {
+        text: sourceValue,
+        sourceLocale,
+        targetLocale,
+      });
+      return translated.trim() ? { value: translated.trim() } : { skipped: true };
     }
 
-    const translations: Record<string, string> = {};
-    let skippedCount = 0;
+    // Rich Text: batch-translate the text nodes, preserve the document structure
+    if (sourceValue && typeof sourceValue === 'object' && sourceValue.nodeType === 'document') {
+      const texts: string[] = [];
+      collectTextValues(sourceValue, texts);
 
-    // Translate all fields in parallel - each is an independent AI Action invocation
-    await Promise.all(
-      localizableFields.map(async (field) => {
-        const sourceText = (entry.fields[field.id] as any)?.[sourceLocale];
-        if (!sourceText || typeof sourceText !== 'string' || !sourceText.trim()) {
-          skippedCount++;
-          return;
-        }
-        try {
-          const translated = await proxyAiAction(context, aiActionId, {
-            text: sourceText,
-            sourceLocale,
-            targetLocale,
-          });
-          if (translated.trim()) {
-            translations[field.id] = translated.trim();
-          } else {
-            skippedCount++;
-          }
-        } catch {
-          skippedCount++;
-        }
-      }),
-    );
+      const nonEmptyIndexes = texts
+        .map((t, i) => (t.trim() ? i : -1))
+        .filter((i) => i >= 0);
+      if (nonEmptyIndexes.length === 0) return { skipped: true };
 
-    return { translations, skippedCount };
+      const joined = nonEmptyIndexes.map((i) => texts[i]).join(DELIMITER);
+      const translatedJoined = await proxyAiAction(context, aiActionId, {
+        text: joined,
+        sourceLocale,
+        targetLocale,
+      });
+
+      const segments = translatedJoined.split(DELIMITER.trim()).map((s) => s.trim());
+      if (segments.length !== nonEmptyIndexes.length) {
+        return { skipped: true, error: 'Rich text segment count mismatch - field skipped.' };
+      }
+
+      const translatedTexts = [...texts];
+      nonEmptyIndexes.forEach((originalIndex, segIndex) => {
+        translatedTexts[originalIndex] = segments[segIndex];
+      });
+
+      const translatedDoc = injectTextValues(sourceValue, translatedTexts, { i: 0 });
+      return { value: translatedDoc };
+    }
+
+    return { skipped: true };
   } catch (err: any) {
-    return { translations: {}, skippedCount: 0, error: `Function error: ${err?.message ?? String(err)}` };
+    return { error: `Function error: ${err?.message ?? String(err)}` };
   }
 };
