@@ -27,13 +27,12 @@ export function createFieldSDK(
   // getForLocale returns a FieldAPI with all the methods the Field component needs
   const baseFieldApi: FieldAPI = entryField.getForLocale(locale);
 
-  // Wrap getValue to ensure it always returns a valid Rich Text document structure
-  // RichTextEditor's toSlateDoc expects a document with content array, and text nodes need value property
-  const originalGetValue = baseFieldApi.getValue.bind(baseFieldApi);
-  const wrappedGetValue = () => {
-    const value = originalGetValue();
-    // If value is null/undefined or doesn't have proper structure, return empty document
-    if (!value || typeof value !== 'object' || !('nodeType' in value) || value.nodeType !== 'document') {
+  // Sanitize a Rich Text document so the editor never sees a malformed value.
+  // RichTextEditor's toSlateDoc maps text nodes' `value` straight onto Slate's
+  // `text` - a missing `value` produces {text: undefined} and crashes Slate
+  // ("Cannot read properties of undefined (reading 'slice')").
+  const sanitizeRichTextDoc = (value: unknown): unknown => {
+    if (!value || typeof value !== 'object' || !('nodeType' in value) || (value as any).nodeType !== 'document') {
       return {
         nodeType: 'document',
         data: {},
@@ -68,17 +67,32 @@ export function createFieldSDK(
     return ensureTextNodes(value);
   };
 
-  // Create a wrapped field API with the safe getValue
+  const originalGetValue = baseFieldApi.getValue.bind(baseFieldApi);
+  const originalOnValueChanged = baseFieldApi.onValueChanged.bind(baseFieldApi);
+
+  // Create a wrapped field API that sanitizes BOTH value paths:
+  // - getValue() covers the editor's initial value
+  // - onValueChanged() covers every subsequent value the editor receives
+  //   (FieldConnector subscribes to it - raw values crashed the editor here)
   const fieldApi = Object.create(baseFieldApi) as FieldAPI & {
     validations: unknown[];
     type: string;
     required: boolean;
   };
-  Object.defineProperty(fieldApi, 'getValue', {
-    value: wrappedGetValue,
-    writable: false,
-    enumerable: true,
-    configurable: false
+  Object.defineProperties(fieldApi, {
+    getValue: {
+      value: () => sanitizeRichTextDoc(originalGetValue()),
+      writable: false,
+      enumerable: true,
+      configurable: false
+    },
+    onValueChanged: {
+      value: (callback: (value: unknown) => void) =>
+        originalOnValueChanged((value: unknown) => callback(sanitizeRichTextDoc(value))),
+      writable: false,
+      enumerable: true,
+      configurable: false
+    }
   });
 
   // Get validations - ensure it's an array and has proper structure for RichText

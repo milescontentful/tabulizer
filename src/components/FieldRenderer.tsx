@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Component, ReactNode } from 'react';
 import type { EditorAppSDK } from '@contentful/app-sdk';
+import { documentToReactComponents } from '@contentful/rich-text-react-renderer';
+import type { Document } from '@contentful/rich-text-types';
 import {
   Box,
   Button,
@@ -91,6 +93,49 @@ interface EntryData {
   id: string;
   title: string;
   contentType: string;
+}
+
+/**
+ * Catches render crashes inside the embedded Rich Text editor (it runs on a
+ * pseudo-FieldAppSDK, so it's the most fragile part of the app) and shows a
+ * read-only fallback instead of white-screening the whole entry editor.
+ */
+class RichTextErrorBoundary extends Component<
+  { fallback: ReactNode; children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    return this.state.hasError ? this.props.fallback : this.props.children;
+  }
+}
+
+/** Read-only Rich Text preview used when the full editor can't render. */
+function RichTextPreview({ value }: { value: unknown }) {
+  let rendered: ReactNode = null;
+  try {
+    if (value) rendered = documentToReactComponents(value as Document);
+  } catch {
+    rendered = null;
+  }
+  return (
+    <Box
+      padding="spacingS"
+      style={{
+        border: `1px solid ${tokens.gray300}`,
+        borderRadius: '4px',
+        background: tokens.gray100,
+      }}
+    >
+      {rendered}
+      <Text as="div" fontSize="fontSizeS" fontColor="gray500" marginTop="spacingXs">
+        Read-only preview — edit this rich text in the Editor tab
+      </Text>
+    </Box>
+  );
 }
 
 /**
@@ -684,25 +729,21 @@ function SingleLocaleField({
         // The RichTextEditor expects a FieldAppSDK and will automatically
         // read/write the JSON value through sdk.field.getValue() and sdk.field.setValue()
         if (!richTextFieldSDK) {
-          return (
-            <Box padding="spacingS" style={{ border: `1px solid ${tokens.gray300}`, borderRadius: '4px' }}>
-              <Text fontColor="red600" fontSize="fontSizeS">
-                Failed to initialize Rich Text editor
-              </Text>
-            </Box>
-          );
+          return <RichTextPreview value={value} />;
         }
 
         return (
-          <Box
-            style={{
-              border: `1px solid ${tokens.gray300}`,
-              borderRadius: '4px',
-              background: tokens.colorWhite,
-            }}
-          >
-            <RichTextEditor sdk={richTextFieldSDK} isInitiallyDisabled={isDisabled} />
-          </Box>
+          <RichTextErrorBoundary fallback={<RichTextPreview value={value} />}>
+            <Box
+              style={{
+                border: `1px solid ${tokens.gray300}`,
+                borderRadius: '4px',
+                background: tokens.colorWhite,
+              }}
+            >
+              <RichTextEditor sdk={richTextFieldSDK} isInitiallyDisabled={isDisabled} />
+            </Box>
+          </RichTextErrorBoundary>
         );
       }
 
