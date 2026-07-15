@@ -1,0 +1,14 @@
+{
+  "$schema": "https://www.contentful.com/developers/docs/extensibility/app-framework/app-manifest-schema.json",
+  "id": "tabulizer",
+  "name": "Tabulizer",
+  "src": "http://localhost:3000",
+  "locations": [
+    {
+      "location": "app-config"
+    },
+    {
+      "location": "entry-editor"
+    }
+  ]
+}
