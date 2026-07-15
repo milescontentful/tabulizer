@@ -2,6 +2,12 @@
 
 A powerful Contentful app that transforms the Entry Editor experience with configurable layouts, translation workflows, and a modern UI. Organize fields into tabs or columns, compare content across locales side-by-side, and streamline your editorial workflow.
 
+## 🚀 Install
+
+**[→ Install Tabulizer in your space](https://app.contentful.com/deeplink?link=apps&id=22ZgfSfvKkFg2w0dqupXhQ)**
+
+Click the link, pick your space and environment, and authorize the app. Then open **Apps → Tabulizer** to configure which content types use it. (The app is private to the Contentful SE organization — you need to be a member to install it.)
+
 ## ✨ Features
 
 ### Layout Options
@@ -19,7 +25,7 @@ A powerful Contentful app that transforms the Entry Editor experience with confi
 - **Live Progress Tracking**: Progress bar per locale covering all translatable text fields (including Rich Text), updated in real time as you type
 - **Per-Field Copy**: One-click "copy from source" button on every target-locale field
 - **Bulk Actions**: Copy all content from source locale, clear all, or prepare for AI translation — destructive actions ask for confirmation first
-- **AI Integration**: Works with Contentful's native AI Actions for translation
+- **One-Click AI Translation**: The Actions menu lists your space's published AI Actions and applies them to a whole locale column, server-side via App Functions — no leaving the editor
 
 ### Full Field Editor Support
 - Rich Text, References, Media/Assets
@@ -131,10 +137,30 @@ When both tabs and columns are configured:
 3. View source and target locales side-by-side, with a live progress bar per target locale
 4. Copy a single field from the source locale with the copy button next to each target field
 5. Use **Actions** menu for bulk operations:
-   - **Prepare All for AI Translation**: Copies source text (including Rich Text) for AI processing
+   - **Translate with AI → [your AI Action]**: One click translates every text field into the target locale, server-side, and fills the column in live
+   - **Prepare All for AI Translation**: Copies source text (including Rich Text) so you can run Contentful's native ✨ AI menu manually
    - **Copy All from Source**: Duplicate source to target (asks for confirmation)
    - **Clear All**: Reset target locale content (asks for confirmation)
-6. Click the ✨ AI button (top-right) → Translate to use Contentful's AI Actions
+
+### AI Translation (App Functions + App Actions)
+
+Contentful blocks AI Action invocation from app iframes, so Tabulizer ships two **App Functions** that run on Contentful's own infrastructure (no external hosting):
+
+| Function | App Action | What it does |
+|---|---|---|
+| `listAiActions` | List AI Actions | Returns the space's published AI Actions so the editor can offer them in the menu |
+| `translateFields` | Translate Fields | Invokes your chosen AI Action per text field (source → target locale) and returns the translations |
+
+The entry editor calls these via `sdk.cma.appActionCall.createWithResponse()` and applies the returned translations through the App SDK field API — so the UI, progress bar, and autosave all update live, with no CMA version conflicts against the open editor.
+
+**Requirements:** the space needs at least one published AI Action (e.g. a "Translate" action with a Text/StandardInput variable and source/target Locale variables). The menu section hides itself if none exist.
+
+**Developing functions:**
+```bash
+npm run build:all        # frontend + function bundles
+npm run upload           # upload bundle (functions ride along)
+npm run upsert-actions   # sync App Actions from contentful-app-manifest.json
+```
 
 ### Refresh Button
 Click the 🔄 button to refresh locale settings if they don't update automatically.
@@ -143,6 +169,10 @@ Click the 🔄 button to refresh locale settings if they don't update automatica
 
 ```
 tabulizer/
+├── functions/
+│   ├── _aiActionProxy.ts          # Shared: invokes an AI Action via context.cma
+│   ├── listAiActions.ts           # App Function: list the space's AI Actions
+│   └── translateFields.ts         # App Function: translate text fields via AI Action
 ├── src/
 │   ├── App.tsx                    # Location router
 │   ├── index.tsx                  # Entry point
@@ -162,6 +192,7 @@ tabulizer/
 │   ├── types/
 │   │   └── index.ts               # TypeScript interfaces
 │   └── utils/
+│       ├── appActions.ts          # App Action invocation helpers (AI translation)
 │       └── createFieldSDK.ts      # SDK adapter utility
 ├── build/                         # Production build output
 ├── vercel.json                    # Vercel deployment config
@@ -207,13 +238,13 @@ interface ContentTypeTabSettings {
 
 ## Sharing the App
 
-To share Tabulizer with colleagues:
+Tabulizer is hosted on Contentful (bundle upload — no external hosting). To share it with colleagues in the org, send them the install link:
 
-1. Deploy to Vercel/Netlify (see Deployment section)
-2. Update the app definition URL in Contentful
-3. Colleagues can install the app in their own spaces
-4. Each space can have its own tab/column configuration
-5. AI Actions work natively - each space uses its own configured actions
+**https://app.contentful.com/deeplink?link=apps&id=22ZgfSfvKkFg2w0dqupXhQ**
+
+1. They pick a space + environment and authorize the app
+2. Each space gets its own tab/column configuration
+3. AI translation works out of the box against whatever AI Actions that space has published
 
 ## Known Limitations
 

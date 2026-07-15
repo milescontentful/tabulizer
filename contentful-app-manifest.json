@@ -2,13 +2,55 @@
   "$schema": "https://www.contentful.com/developers/docs/extensibility/app-framework/app-manifest-schema.json",
   "id": "tabulizer",
   "name": "Tabulizer",
-  "src": "http://localhost:3000",
   "locations": [
     {
       "location": "app-config"
     },
     {
       "location": "entry-editor"
+    }
+  ],
+  "functions": [
+    {
+      "id": "listAiActions",
+      "name": "List AI Actions",
+      "description": "Returns the published Contentful AI Actions in the space so the entry editor can offer them for translation.",
+      "path": "functions/listAiActions.js",
+      "entryFile": "functions/listAiActions.ts",
+      "accepts": ["appaction.call"]
+    },
+    {
+      "id": "translateFields",
+      "name": "Translate Fields",
+      "description": "Translates an entry's localizable text fields via a Contentful AI Action, server-side.",
+      "path": "functions/translateFields.js",
+      "entryFile": "functions/translateFields.ts",
+      "accepts": ["appaction.call"]
+    }
+  ],
+  "actions": [
+    {
+      "id": "34PhrpWXe5vNmptu6tIErP",
+      "name": "List AI Actions",
+      "description": "Lists published AI Actions in the space.",
+      "type": "function-invocation",
+      "functionId": "listAiActions",
+      "category": "Custom",
+      "parameters": []
+    },
+    {
+      "id": "ch8JlwGk5hZbFWNNvvTB8",
+      "name": "Translate Fields",
+      "description": "Translates localizable text fields server-side via a Contentful AI Action.",
+      "type": "function-invocation",
+      "functionId": "translateFields",
+      "category": "Custom",
+      "parameters": [
+        { "id": "entryId", "name": "Entry ID", "type": "Symbol", "required": true },
+        { "id": "sourceLocale", "name": "Source Locale", "type": "Symbol", "required": true },
+        { "id": "targetLocale", "name": "Target Locale", "type": "Symbol", "required": true },
+        { "id": "aiActionId", "name": "AI Action ID", "type": "Symbol", "required": true }
+      ]
     }
   ]
 }

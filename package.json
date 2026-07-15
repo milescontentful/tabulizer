@@ -19,7 +19,8 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@contentful/app-scripts": "^1.27.0",
+    "@contentful/app-scripts": "^2.5.6",
+    "@contentful/node-apps-toolkit": "^4.0.0",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.2",
@@ -29,8 +30,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:functions": "contentful-app-scripts build-functions --ci",
+    "build:all": "npm run build && npm run build:functions",
     "preview": "vite preview",
-    "upload": "npx @contentful/app-scripts upload",
-    "create-app-definition": "npx @contentful/app-scripts create-app-definition"
+    "upload": "contentful-app-scripts upload --bundle-dir ./build",
+    "upsert-actions": "contentful-app-scripts upsert-actions",
+    "create-app-definition": "contentful-app-scripts create-app-definition"
   }
 }

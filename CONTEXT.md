@@ -2,7 +2,19 @@
 
 This document provides context for returning to this project after a break.
 
-**Last Updated:** July 14, 2026
+**Last Updated:** July 14, 2026 (evening — App Functions added)
+
+## Key IDs
+
+| Thing | ID |
+|---|---|
+| Org | `0EJtkVUGWJCta9Kk8Q3ZCB` |
+| App definition | `22ZgfSfvKkFg2w0dqupXhQ` |
+| App Action: List AI Actions | `34PhrpWXe5vNmptu6tIErP` |
+| App Action: Translate Fields | `ch8JlwGk5hZbFWNNvvTB8` |
+| Install link | https://app.contentful.com/deeplink?link=apps&id=22ZgfSfvKkFg2w0dqupXhQ |
+
+App Action IDs are baked into `src/utils/appActions.ts` and `contentful-app-manifest.json` — they live on the app definition, so they're stable across all installs.
 
 ## Project Status: Production Ready ✓
 
@@ -161,7 +173,19 @@ Test in Contentful:
 
 ## Session History
 
-### July 14, 2026 (Latest) — Cleanup & Polish
+### July 14, 2026 (Latest, evening) — App Functions + One-Click AI Translation
+- Added two App Functions (pattern ported from content-health-dashboard): `listAiActions` and `translateFields` in `functions/`, built with `contentful-app-scripts build-functions`
+- Functions run server-side with App Identity (`context.cma`) — this bypasses the iframe restriction on invoking AI Actions
+- `translateFields` RETURNS translations instead of writing via CMA (avoids version conflicts with the open editor); the frontend applies them via the App SDK field API so UI/progress/autosave stay in sync
+- Created App Actions via CMA (upsert-actions CLI has no --ci mode; POST to `/organizations/{org}/app_definitions/{def}/actions` with `function` link works — payload shape from app-scripts `make-cma-payload.js`)
+- Created an App Identity key (required for `context.cma` in functions; none existed)
+- Translation mode Actions menu now shows a "Translate with AI" section listing the space's published AI Actions
+- Smoke-tested end-to-end via CMA in Xbone3 space: `listAiActions` returned the 3 published AI Actions ✓
+- App action call response body lives at `.../calls/{callId}/response` (the `createWithResponse` SDK method handles this)
+- Upgraded `@contentful/app-scripts` to v2, added `@contentful/node-apps-toolkit`
+- Added install deeplink to README for sharing with colleagues
+
+### July 14, 2026 — Cleanup & Polish
 - Removed all leftover AI-agent debug instrumentation (localhost fetch calls + console logs) from `createFieldSDK.ts` and `FieldRenderer.tsx`
 - Deleted dead code: `useTabConfigManager` hook, orphaned Dialog location, unused `FieldList` wrapper, unused type exports, components barrel file
 - Extracted `TranslationView` from EntryEditor into `src/components/TranslationView.tsx` with a `useTranslationProgress` hook

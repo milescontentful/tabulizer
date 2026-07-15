@@ -15,6 +15,7 @@ import {
 import tokens from '@contentful/f36-tokens';
 import { ChevronDownIcon, CopyIcon, DeleteIcon, StarIcon } from '@contentful/f36-icons';
 import { FieldRenderer } from './FieldRenderer';
+import { listAiActions, translateFieldsViaAiAction, AiActionInfo } from '../utils/appActions';
 
 /** Field types that hold translatable text - these drive the progress bar */
 const TRANSLATABLE_TYPES = ['Symbol', 'Text', 'RichText'];
@@ -115,6 +116,24 @@ export function TranslationView({
   const [confirmAction, setConfirmAction] = useState<
     { type: 'copy' | 'clear'; locale: string } | null
   >(null);
+  // AI Actions available in this space, loaded server-side via an App Function
+  // (null = still loading; [] = none available or the App Action isn't reachable)
+  const [aiActions, setAiActions] = useState<AiActionInfo[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listAiActions(sdk)
+      .then((actions) => {
+        if (!cancelled) setAiActions(actions);
+      })
+      .catch(() => {
+        // App Action not available (e.g. bundle without functions) - hide AI menu items
+        if (!cancelled) setAiActions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sdk]);
 
   const getLocaleName = (locale: string): string => sdk.locales.names?.[locale] || locale;
 
@@ -213,6 +232,41 @@ export function TranslationView({
       sdk.notifier.success(
         `Cleared ${clearedCount} field${clearedCount === 1 ? '' : 's'} in ${getLocaleName(targetLocale)}`
       );
+    } finally {
+      setBusyLocale(null);
+    }
+  };
+
+  // Translate all text fields into the target locale via a Contentful AI Action,
+  // proxied through an App Function (the iframe can't invoke AI Actions directly).
+  // Translations are applied through the SDK field API so the UI updates live.
+  const handleAiTranslate = async (targetLocale: string, aiAction: AiActionInfo) => {
+    setBusyLocale(targetLocale);
+    try {
+      const { translations, skippedCount } = await translateFieldsViaAiAction(
+        sdk,
+        aiAction.id,
+        defaultLocale,
+        targetLocale
+      );
+      let appliedCount = 0;
+      for (const [fieldId, text] of Object.entries(translations)) {
+        try {
+          await sdk.entry.fields[fieldId]?.getForLocale(targetLocale)?.setValue(text);
+          appliedCount++;
+        } catch {
+          // Skip fields that fail
+        }
+      }
+      if (appliedCount > 0) {
+        sdk.notifier.success(
+          `Translated ${appliedCount} field${appliedCount === 1 ? '' : 's'} to ${getLocaleName(targetLocale)} with "${aiAction.name}"${skippedCount ? ` (${skippedCount} skipped)` : ''}`
+        );
+      } else {
+        sdk.notifier.warning('No fields were translated. Check the AI Action configuration.');
+      }
+    } catch (err) {
+      sdk.notifier.error(`AI translation failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusyLocale(null);
     }
@@ -330,6 +384,20 @@ export function TranslationView({
                     </Button>
                   </Menu.Trigger>
                   <Menu.List>
+                    {/* One-click AI translation via App Function + the space's AI Actions */}
+                    {aiActions && aiActions.length > 0 && (
+                      <>
+                        <Menu.SectionTitle>Translate with AI</Menu.SectionTitle>
+                        {aiActions.map((action) => (
+                          <Menu.Item key={action.id} onClick={() => handleAiTranslate(locale, action)}>
+                            <Flex alignItems="center" gap="spacingXs">
+                              <StarIcon size="tiny" /> {action.name}
+                            </Flex>
+                          </Menu.Item>
+                        ))}
+                        <Menu.Divider />
+                      </>
+                    )}
                     <Menu.Item onClick={() => handleBulkPrepareForAI(locale)}>
                       <Flex alignItems="center" gap="spacingXs">
                         <StarIcon size="tiny" /> Prepare All for AI Translation
