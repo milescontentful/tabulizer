@@ -247,7 +247,7 @@ Tabulizer is hosted on Contentful (bundle upload — no external hosting). To sh
 
 ## Known Limitations
 
-1. **AI Actions**: Direct invocation from iframe not supported. Uses hybrid workflow with native AI menu.
+1. **Live Preview**: Contentful's in-context Live Preview pairs with the native editor only — custom editor apps can't host it. Tabulizer therefore installs as the **second** editor tab (Editor · Tabulizer · …) so Live Preview keeps working from the default Editor. Reorder per content type under Content model → Entry editors if you prefer Tabulizer first.
 2. **Configuration persistence**: Changes in App Config require page refresh in Entry Editor.
 3. **Iframe Sandbox**: Contentful's iframe blocks `window.confirm()`, `window.alert()`, and `window.prompt()`. The app uses Forma 36 modals and `sdk.notifier` instead.
 

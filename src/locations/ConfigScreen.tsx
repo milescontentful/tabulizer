@@ -80,7 +80,10 @@ function ConfigScreen() {
       const settings = config[ct.sys.id];
       if (settings?.enabled) {
         editorInterface[ct.sys.id] = {
-          editors: { position: 0 }, // Position 0 makes it the first/primary editor
+          // Position 1 = second tab, after the default Editor. Live Preview only
+          // works from the native editor, so it stays primary: Editor - Tabulizer - ...
+          // Users can reorder per content type under Content model - Entry editors.
+          editors: { position: 1 },
         };
       }
     }
@@ -192,6 +195,10 @@ function ConfigScreen() {
         <Note variant="neutral">
           After configuring tabs, click <strong>Install</strong> or{' '}
           <strong>Save</strong> in the top-right corner to apply your changes.
+          Tabulizer is added as the <strong>second</strong> editor tab (Editor
+          · Tabulizer · …) so Live Preview keeps working from the default
+          Editor. To reorder, edit the content type under{' '}
+          <strong>Content model → Entry editors</strong>.
         </Note>
       </Flex>
     </Box>
